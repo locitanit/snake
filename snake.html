@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>🐍 Twist Snake</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #0d0d1a;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      font-family: 'Segoe UI', sans-serif;
+      color: #fff;
+      user-select: none;
+    }
+    h1 {
+      font-size: 2rem;
+      margin-bottom: 8px;
+      background: linear-gradient(90deg, #00ff88, #00cfff, #ff6bff);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 2px;
+    }
+    #scoreboard {
+      display: flex;
+      gap: 30px;
+      margin-bottom: 12px;
+      font-size: 1rem;
+    }
+    .score-item span { color: #aaa; }
+    .score-item strong { font-size: 1.3rem; color: #00ff88; }
+    #canvas-wrap {
+      position: relative;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 0 40px #00ff8855, 0 0 80px #00cfff22;
+    }
+    canvas { display: block; background: #0a0a14; }
+    #overlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(10,10,20,0.88);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      border-radius: 12px;
+      backdrop-filter: blur(4px);
+    }
+    #overlay h2 { font-size: 2rem; color: #00ff88; }
+    #overlay p { color: #ccc; font-size: 0.95rem; text-align: center; max-width: 360px; line-height: 1.6; }
+    #overlay button {
+      margin-top: 8px;
+      padding: 12px 40px;
+      border: none;
+      border-radius: 30px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      cursor: pointer;
+      background: linear-gradient(135deg, #00ff88, #00cfff);
+      color: #0a0a14;
+      transition: transform 0.15s, box-shadow 0.15s;
+    }
+    #overlay button:hover { transform: scale(1.07); box-shadow: 0 0 20px #00ff8888; }
+    #legend {
+      display: flex;
+      gap: 16px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 10px;
+      font-size: 0.82rem;
+      color: #aaa;
+      max-width: 500px;
+    }
+    .leg { display: flex; align-items: center; gap: 5px; }
+    .leg-dot { width: 14px; height: 14px; border-radius: 3px; }
+    #effect-banner {
+      height: 28px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      color: #ffe066;
+      margin-bottom: 4px;
+      letter-spacing: 1px;
+      min-width: 300px;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>🐍 TWIST SNAKE</h1>
+  <div id="scoreboard">
+    <div class="score-item"><span>Pontszám </span><strong id="score">0</strong></div>
+    <div class="score-item"><span>Legjobb </span><strong id="best">0</strong></div>
+    <div class="score-item"><span>Szint </span><strong id="level">1</strong></div>
+  </div>
+  <div id="effect-banner" id="effect-banner"></div>
+  <div id="canvas-wrap">
+    <canvas id="c" width="500" height="500"></canvas>
+    <div id="overlay">
+      <h2>🐍 TWIST SNAKE</h2>
+      <p>
+        Különleges ételek a csavarhoz:<br>
+        🍎 <b style="color:#ff4d4d">Alma</b> – normál pont<br>
+        ⚡ <b style="color:#ffe066">Villám</b> – gyorsít (ideiglenesen)<br>
+        🐢 <b style="color:#88ffaa">Teknős</b> – lassít (mentőöv!)<br>
+        🔀 <b style="color:#ff88ff">Swirl</b> – megfordítja az irányt!<br>
+        💎 <b style="color:#00cfff">Gyémánt</b> – 5× pont, de gyorsan eltűnik<br>
+        🌀 <b style="color:#aa88ff">Portál</b> – teleportál a másik portálhoz
+      </p>
+      <button id="startBtn">▶ JÁTÉK KEZDÉSE</button>
+    </div>
+  </div>
+  <div id="legend">
+    <div class="leg"><div class="leg-dot" style="background:#ff4d4d"></div>Alma +1</div>
+    <div class="leg"><div class="leg-dot" style="background:#ffe066"></div>Villám gyorsít</div>
+    <div class="leg"><div class="leg-dot" style="background:#88ffaa"></div>Teknős lassít</div>
+    <div class="leg"><div class="leg-dot" style="background:#ff88ff"></div>Swirl megfordít</div>
+    <div class="leg"><div class="leg-dot" style="background:#00cfff"></div>Gyémánt ×5</div>
+    <div class="leg"><div class="leg-dot" style="background:#aa88ff"></div>Portál teleport</div>
+  </div>
+
+<script>
+const COLS = 25, ROWS = 25, CELL = 20;
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+const scoreEl = document.getElementById('score');
+const bestEl = document.getElementById('best');
+const levelEl = document.getElementById('level');
+const overlay = document.getElementById('overlay');
+const startBtn = document.getElementById('startBtn');
+const effectBanner = document.getElementById('effect-banner');
+
+let snake, dir, nextDir, score, best=0, gameLoop, speed, level;
+let foods = [];
+let portals = [];
+let effect = null; // {type, timer}
+let effectTimeout = null;
+let gameOver = false;
+let flashTimer = 0;
+let bug = null; // {x, y, expiresAt, moveCounter}
+let lastChallengeMilestone = 0;
+const BUG_DURATION = 8000; // ms
+const BUG_MOVE_EVERY = 3; // ticks
+
+const FOOD_TYPES = {
+  apple:   { emoji:'🍎', color:'#ff4d4d', points:1,  prob:0.50, duration:null },
+  bolt:    { emoji:'⚡', color:'#ffe066', points:1,  prob:0.15, duration:5000 },
+  turtle:  { emoji:'🐢', color:'#88ffaa', points:1,  prob:0.12, duration:5000 },
+  swirl:   { emoji:'🔀', color:'#ff88ff', points:1,  prob:0.10, duration:null },
+  diamond: { emoji:'💎', color:'#00cfff', points:5,  prob:0.08, duration:null, expires:4000 },
+  portal:  { emoji:'🌀', color:'#aa88ff', points:2,  prob:0.05, duration:null },
+};
+
+function randInt(n) { return Math.floor(Math.random()*n); }
+
+function freeCell() {
+  const occupied = new Set();
+  snake.forEach(s => occupied.add(s.x+','+s.y));
+  foods.forEach(f => occupied.add(f.x+','+f.y));
+  portals.forEach(p => { occupied.add(p[0].x+','+p[0].y); occupied.add(p[1].x+','+p[1].y); });
+  let x, y, tries=0;
+  do { x=randInt(COLS); y=randInt(ROWS); tries++; } while(occupied.has(x+','+y) && tries<200);
+  return {x, y};
+}
+
+function pickFoodType() {
+  const r = Math.random();
+  let cumul = 0;
+  for(const [k,v] of Object.entries(FOOD_TYPES)) {
+    cumul += v.prob;
+    if(r < cumul) return k;
+  }
+  return 'apple';
+}
+
+function spawnFood() {
+  if(foods.length >= 3) return;
+  const type = pickFoodType();
+  const pos = freeCell();
+  const food = { ...pos, type, spawnTime: Date.now() };
+  if(type === 'portal') {
+    const pos2 = freeCell();
+    portals.push([{x:pos.x, y:pos.y}, {x:pos2.x, y:pos2.y}, Date.now()]);
+    return;
+  }
+  foods.push(food);
+}
+
+function initGame() {
+  snake = [{x:12,y:12},{x:11,y:12},{x:10,y:12}];
+  dir = {x:1,y:0};
+  nextDir = {x:1,y:0};
+  score = 0;
+  level = 1;
+  speed = 150;
+  foods = [];
+  portals = [];
+  effect = null;
+  bug = null;
+  lastChallengeMilestone = 0;
+  gameOver = false;
+  effectBanner.textContent = '';
+  scoreEl.textContent = 0;
+  levelEl.textContent = 1;
+  spawnFood(); spawnFood();
+  clearInterval(gameLoop);
+  gameLoop = setInterval(tick, speed);
+}
+
+function setSpeed(ms) {
+  speed = ms;
+  clearInterval(gameLoop);
+  gameLoop = setInterval(tick, speed);
+}
+
+function showEffect(msg, color) {
+  effectBanner.style.color = color || '#ffe066';
+  effectBanner.textContent = msg;
+  clearTimeout(effectTimeout);
+  effectTimeout = setTimeout(() => { effectBanner.textContent = ''; }, 2500);
+}
+
+function reverseSnake() {
+  snake.reverse();
+  const head = snake[0], next = snake[1];
+  dir = { x: head.x - next.x, y: head.y - next.y };
+  nextDir = { ...dir };
+}
+
+function tick() {
+  dir = { ...nextDir };
+  const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+
+  // Wall collision (no wrap!)
+  if(head.x < 0 || head.x >= COLS || head.y < 0 || head.y >= ROWS) {
+    endGame(); return;
+  }
+
+  // Portal teleport check
+  for(let pi=0; pi<portals.length; pi++) {
+    const [a, b] = portals[pi];
+    if(head.x===a.x && head.y===a.y) { head.x=b.x; head.y=b.y; showEffect('🌀 TELEPORT!','#aa88ff'); portals.splice(pi,1); break; }
+    if(head.x===b.x && head.y===b.y) { head.x=a.x; head.y=a.y; showEffect('🌀 TELEPORT!','#aa88ff'); portals.splice(pi,1); break; }
+  }
+
+  // Self collision
+  if(snake.some(s=>s.x===head.x && s.y===head.y)) {
+    endGame(); return;
+  }
+
+  snake.unshift(head);
+
+  // Eat food?
+  let ate = false;
+  for(let i=0; i<foods.length; i++) {
+    const f = foods[i];
+    if(f.x===head.x && f.y===head.y) {
+      const ft = FOOD_TYPES[f.type];
+      score += ft.points;
+      scoreEl.textContent = score;
+      if(score > best) { best=score; bestEl.textContent=best; }
+
+      if(f.type==='bolt') {
+        setSpeed(Math.max(60, speed-40));
+        effect={type:'bolt'};
+        showEffect('⚡ GYORS MÓD!','#ffe066');
+        clearTimeout(effectTimeout);
+        setTimeout(()=>{ setSpeed(calcBaseSpeed()); effect=null; effectBanner.textContent=''; },5000);
+      } else if(f.type==='turtle') {
+        setSpeed(Math.min(300, speed+60));
+        effect={type:'turtle'};
+        showEffect('🐢 LASSÚ MÓD!','#88ffaa');
+        clearTimeout(effectTimeout);
+        setTimeout(()=>{ setSpeed(calcBaseSpeed()); effect=null; effectBanner.textContent=''; },5000);
+      } else if(f.type==='swirl') {
+        showEffect('🔀 IRÁNYVÁLTÁS!','#ff88ff');
+        setTimeout(reverseSnake, 0);
+      } else if(f.type==='diamond') {
+        showEffect('💎 ×5 PONT!','#00cfff');
+      }
+
+      foods.splice(i,1);
+      ate = true;
+
+      // Level up
+      const newLevel = Math.floor(score/10)+1;
+      if(newLevel > level) {
+        level = newLevel;
+        levelEl.textContent = level;
+        if(!effect || effect.type==='turtle') setSpeed(calcBaseSpeed());
+        showEffect('🆙 SZINT: '+level,'#00ff88');
+      }
+
+      setTimeout(spawnFood, 200);
+      break;
+    }
+  }
+
+  if(!ate) snake.pop();
+
+  // Expire diamond and portals
+  foods = foods.filter(f => {
+    if(f.type==='diamond' && Date.now()-f.spawnTime > 4000) return false;
+    return true;
+  });
+  portals = portals.filter(p => Date.now()-p[2] < 10000);
+
+  // Random new food chance
+  if(Math.random()<0.04) spawnFood();
+
+  draw();
+}
+
+function calcBaseSpeed() {
+  return Math.max(80, 150 - (level-1)*8);
+}
+
+function endGame() {
+  clearInterval(gameLoop);
+  gameOver = true;
+  flashTimer = 6;
+  drawFlash();
+  setTimeout(()=>{
+    overlay.innerHTML = `
+      <h2>💀 JÁTÉK VÉGE</h2>
+      <p>Pontszámod: <b style="color:#00ff88;font-size:1.5rem">${score}</b><br>
+      Legjobb: <b style="color:#ffe066">${best}</b><br><br>
+      Köszönjük, hogy játszottál a <b>Twist Snake</b>-kel!</p>
+      <button id="startBtn">🔄 ÚJRAJÁTSZÁS</button>`;
+    overlay.style.display='flex';
+    document.getElementById('startBtn').onclick = ()=>{ overlay.style.display='none'; initGame(); };
+  }, 600);
+}
+
+function drawFlash() {
+  if(flashTimer<=0) return;
+  ctx.fillStyle = `rgba(255,60,60,${0.18*flashTimer/6})`;
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+  flashTimer--;
+  if(flashTimer>0) requestAnimationFrame(drawFlash);
+}
+
+function draw() {
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  // Grid
+  ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+  ctx.lineWidth=1;
+  for(let x=0;x<=COLS;x++) { ctx.beginPath(); ctx.moveTo(x*CELL,0); ctx.lineTo(x*CELL,ROWS*CELL); ctx.stroke(); }
+  for(let y=0;y<=ROWS;y++) { ctx.beginPath(); ctx.moveTo(0,y*CELL); ctx.lineTo(COLS*CELL,y*CELL); ctx.stroke(); }
+
+  // Portals
+  portals.forEach(([a,b], pi) => {
+    const age = Date.now()-b[2] || 0;
+    const pulse = 0.6+0.4*Math.sin(Date.now()/200+pi);
+    drawPortal(a.x,a.y,'#aa88ff',pulse);
+    drawPortal(b.x,b.y,'#ffaa00',pulse);
+  });
+
+  // Foods
+  foods.forEach(f => {
+    const ft = FOOD_TYPES[f.type];
+    const cx = f.x*CELL+CELL/2, cy = f.y*CELL+CELL/2;
+    // Diamond blink
+    if(f.type==='diamond') {
+      const age = Date.now()-f.spawnTime;
+      if(age>2500 && Math.floor(Date.now()/150)%2===0) return;
+    }
+    // Glow
+    ctx.save();
+    ctx.shadowBlur=16; ctx.shadowColor=ft.color;
+    ctx.font = `${CELL-2}px serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(ft.emoji, cx, cy);
+    ctx.restore();
+  });
+
+  // Snake
+  snake.forEach((seg, i) => {
+    const x=seg.x*CELL, y=seg.y*CELL;
+    const t = i/snake.length;
+    const r = Math.round(lerp(0x00,0x00,t)), g=Math.round(lerp(0xff,0x99,t)), b=Math.round(lerp(0x88,0xff,t));
+    ctx.save();
+    if(i===0) { ctx.shadowBlur=18; ctx.shadowColor='#00ff88'; }
+    ctx.fillStyle = `rgb(${r},${g},${b})`;
+    roundRect(ctx, x+2, y+2, CELL-4, CELL-4, 5);
+    ctx.fill();
+    ctx.restore();
+    if(i===0) {
+      // Eyes
+      const ex = dir.x, ey = dir.y;
+      ctx.fillStyle='#0a0a14';
+      const ox = ey*3, oy = -ex*3;
+      ctx.beginPath(); ctx.arc(x+CELL/2+ex*4+ox, y+CELL/2+ey*4+oy,2,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(x+CELL/2+ex*4-ox, y+CELL/2+ey*4-oy,2,0,Math.PI*2); ctx.fill();
+    }
+  });
+}
+
+function drawPortal(px,py,color,pulse) {
+  const cx=px*CELL+CELL/2, cy=py*CELL+CELL/2;
+  ctx.save();
+  ctx.shadowBlur=20*pulse; ctx.shadowColor=color;
+  ctx.strokeStyle=color; ctx.lineWidth=2.5;
+  ctx.beginPath(); ctx.arc(cx,cy,CELL/2-2,0,Math.PI*2); ctx.stroke();
+  ctx.strokeStyle='rgba(255,255,255,0.3)'; ctx.lineWidth=1;
+  ctx.beginPath(); ctx.arc(cx,cy,CELL/2-5,0,Math.PI*2); ctx.stroke();
+  ctx.fillStyle=color+'33';
+  ctx.beginPath(); ctx.arc(cx,cy,CELL/2-2,0,Math.PI*2); ctx.fill();
+  ctx.restore();
+}
+
+function roundRect(c,x,y,w,h,r) {
+  c.beginPath(); c.moveTo(x+r,y);
+  c.lineTo(x+w-r,y); c.quadraticCurveTo(x+w,y,x+w,y+r);
+  c.lineTo(x+w,y+h-r); c.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  c.lineTo(x+r,y+h); c.quadraticCurveTo(x,y+h,x,y+h-r);
+  c.lineTo(x,y+r); c.quadraticCurveTo(x,y,x+r,y); c.closePath();
+}
+
+function lerp(a,b,t) { return a+(b-a)*t; }
+
+// Controls
+document.addEventListener('keydown', e => {
+  const map = {
+    ArrowUp:{x:0,y:-1}, ArrowDown:{x:0,y:1},
+    ArrowLeft:{x:-1,y:0}, ArrowRight:{x:1,y:0},
+    w:{x:0,y:-1}, s:{x:0,y:1}, a:{x:-1,y:0}, d:{x:1,y:0},
+    W:{x:0,y:-1}, S:{x:0,y:1}, A:{x:-1,y:0}, D:{x:1,y:0}
+  };
+  const nd = map[e.key];
+  if(nd && !(nd.x===-dir.x && nd.y===-dir.y)) { nextDir=nd; e.preventDefault(); }
+});
+
+// Touch controls
+let touchStart=null;
+canvas.addEventListener('touchstart', e=>{ touchStart=e.touches[0]; e.preventDefault(); },{passive:false});
+canvas.addEventListener('touchend', e=>{
+  if(!touchStart) return;
+  const dx=e.changedTouches[0].clientX-touchStart.clientX;
+  const dy=e.changedTouches[0].clientY-touchStart.clientY;
+  if(Math.abs(dx)>Math.abs(dy)) {
+    const nd=dx>0?{x:1,y:0}:{x:-1,y:0};
+    if(!(nd.x===-dir.x)) nextDir=nd;
+  } else {
+    const nd=dy>0?{x:0,y:1}:{x:0,y:-1};
+    if(!(nd.y===-dir.y)) nextDir=nd;
+  }
+  e.preventDefault();
+},{passive:false});
+
+startBtn.onclick = ()=>{ overlay.style.display='none'; initGame(); };
+draw();
+</script>
+</body>
+</html>
