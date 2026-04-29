@@ -33,13 +33,26 @@
     }
     .score-item span { color: #aaa; }
     .score-item strong { font-size: 1.3rem; color: #00ff88; }
+    #effect-banner {
+      height: 28px;
+      font-size: 0.95rem;
+      font-weight: bold;
+      color: #ffe066;
+      margin-bottom: 4px;
+      letter-spacing: 1px;
+      min-width: 300px;
+      text-align: center;
+    }
     #canvas-wrap {
       position: relative;
       border-radius: 12px;
       overflow: hidden;
       box-shadow: 0 0 40px #00ff8855, 0 0 80px #00cfff22;
+      width: 500px;
+      height: 500px;
+      flex-shrink: 0;
     }
-    canvas { display: block; background: #0a0a14; }
+    canvas { display: block; background: #0a0a14; width: 100%; height: 100%; }
     #overlay {
       position: absolute;
       inset: 0;
@@ -79,15 +92,54 @@
     }
     .leg { display: flex; align-items: center; gap: 5px; }
     .leg-dot { width: 14px; height: 14px; border-radius: 3px; }
-    #effect-banner {
-      height: 28px;
-      font-size: 0.95rem;
-      font-weight: bold;
-      color: #ffe066;
-      margin-bottom: 4px;
-      letter-spacing: 1px;
-      min-width: 300px;
-      text-align: center;
+
+    /* D-pad */
+    #dpad {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+      margin-top: 18px;
+    }
+    .dpad-row {
+      display: flex;
+      gap: 6px;
+    }
+    .dpad-btn {
+      width: 54px;
+      height: 54px;
+      background: rgba(255,255,255,0.08);
+      border: 2px solid rgba(255,255,255,0.18);
+      border-radius: 12px;
+      color: #fff;
+      font-size: 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.1s, border-color 0.1s;
+      touch-action: manipulation;
+    }
+    .dpad-btn:active { background: rgba(0,255,136,0.25); border-color: #00ff88; }
+    .dpad-spacer { width: 54px; height: 54px; }
+
+    @media (max-width: 540px) {
+      body { padding: 10px 4px; justify-content: flex-start; padding-top: 14px; }
+      h1 { font-size: 1.3rem; margin-bottom: 4px; }
+      #scoreboard { gap: 14px; font-size: 0.82rem; margin-bottom: 6px; }
+      .score-item strong { font-size: 1rem; }
+      #canvas-wrap { width: min(98vw, 360px); height: min(98vw, 360px); }
+      #effect-banner { font-size: 0.78rem; min-width: unset; }
+      #legend { font-size: 0.72rem; gap: 8px; }
+      #dpad { display: flex; }
+    }
+    @media (min-width: 541px) and (max-width: 900px) {
+      body { padding: 16px 8px; justify-content: flex-start; padding-top: 20px; }
+      h1 { font-size: 1.6rem; }
+      #canvas-wrap { width: min(90vw, 500px); height: min(90vw, 500px); }
+      #dpad { display: flex; }
     }
   </style>
 </head>
@@ -110,7 +162,9 @@
         🐢 <b style="color:#88ffaa">Teknős</b> – lassít (mentőöv!)<br>
         🔀 <b style="color:#ff88ff">Swirl</b> – megfordítja az irányt!<br>
         💎 <b style="color:#00cfff">Gyémánt</b> – 5× pont, de gyorsan eltűnik<br>
-        🌀 <b style="color:#aa88ff">Portál</b> – teleportál a másik portálhoz
+        🌀 <b style="color:#aa88ff">Portál</b> – teleportál a másik portálhoz<br>
+        🪲 <b style="color:#ffdd00">Rovar kihívás</b> – minden 20 pontnál, +15 ha elkapod!<br><br>
+        ⚠️ <b style="color:#ff6666">A falnak ütközve meghalsz!</b>
       </p>
       <button id="startBtn">▶ JÁTÉK KEZDÉSE</button>
     </div>
@@ -122,6 +176,23 @@
     <div class="leg"><div class="leg-dot" style="background:#ff88ff"></div>Swirl megfordít</div>
     <div class="leg"><div class="leg-dot" style="background:#00cfff"></div>Gyémánt ×5</div>
     <div class="leg"><div class="leg-dot" style="background:#aa88ff"></div>Portál teleport</div>
+    <div class="leg"><div class="leg-dot" style="background:#ffdd00"></div>Rovar kihívás +15</div>
+    <div class="leg" style="color:#ff6666">⚠️ Fal = halál</div>
+  </div>
+
+  <!-- D-pad controls (shown on mobile/tablet) -->
+  <div id="dpad">
+    <div class="dpad-row">
+      <button class="dpad-btn" id="btn-up">▲</button>
+    </div>
+    <div class="dpad-row">
+      <button class="dpad-btn" id="btn-left">◀</button>
+      <div class="dpad-spacer"></div>
+      <button class="dpad-btn" id="btn-right">▶</button>
+    </div>
+    <div class="dpad-row">
+      <button class="dpad-btn" id="btn-down">▼</button>
+    </div>
   </div>
 
 <script>
@@ -310,10 +381,57 @@ function tick() {
   });
   portals = portals.filter(p => Date.now()-p[2] < 10000);
 
+  // Bug challenge: spawn every 20 points
+  const milestone = Math.floor(score/20)*20;
+  if(score >= 20 && milestone > lastChallengeMilestone && !bug) {
+    lastChallengeMilestone = milestone;
+    spawnBug();
+  }
+
+  // Bug movement & expiry
+  if(bug) {
+    bug.moveCounter = (bug.moveCounter||0) + 1;
+    if(bug.moveCounter % BUG_MOVE_EVERY === 0) moveBug();
+    if(Date.now() > bug.expiresAt) {
+      bug = null;
+      showEffect('🪲 Elszaladt a rovar!', '#ff8844');
+    }
+    // Bug catch
+    if(bug && head.x === bug.x && head.y === bug.y) {
+      score += 15;
+      scoreEl.textContent = score;
+      if(score > best) { best=score; bestEl.textContent=best; }
+      showEffect('🪲 ELKAPTA! +15 PONT!', '#ffdd00');
+      bug = null;
+    }
+  }
+
   // Random new food chance
   if(Math.random()<0.04) spawnFood();
 
   draw();
+}
+
+function spawnBug() {
+  const pos = freeCell();
+  bug = { x: pos.x, y: pos.y, expiresAt: Date.now() + BUG_DURATION, moveCounter: 0 };
+  showEffect('🪲 KIHÍVÁS! Kapd el a rovart! (8mp)', '#ffdd00');
+}
+
+function moveBug() {
+  if(!bug) return;
+  const dirs = [{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}];
+  // Bias: move away from snake head
+  const hx = snake[0].x, hy = snake[0].y;
+  dirs.sort(() => Math.random()-0.5);
+  // Pick a valid dir that stays on board
+  for(const d of dirs) {
+    const nx = bug.x+d.x, ny = bug.y+d.y;
+    if(nx>=0 && nx<COLS && ny>=0 && ny<ROWS) {
+      bug.x = nx; bug.y = ny;
+      break;
+    }
+  }
 }
 
 function calcBaseSpeed() {
@@ -379,6 +497,27 @@ function draw() {
     ctx.fillText(ft.emoji, cx, cy);
     ctx.restore();
   });
+
+  // Bug challenge
+  if(bug) {
+    const timeLeft = (bug.expiresAt - Date.now()) / BUG_DURATION;
+    const cx = bug.x*CELL+CELL/2, cy = bug.y*CELL+CELL/2;
+    // Urgency pulse
+    const pulse = timeLeft < 0.3 ? (Math.floor(Date.now()/100)%2===0 ? 1.4 : 0.8) : 1;
+    ctx.save();
+    ctx.shadowBlur = 20; ctx.shadowColor = '#ffdd00';
+    ctx.font = `${Math.round((CELL-1)*pulse)}px serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🪲', cx, cy);
+    // Timer arc
+    ctx.strokeStyle = timeLeft < 0.3 ? '#ff4444' : '#ffdd00';
+    ctx.lineWidth = 2;
+    ctx.globalAlpha = 0.7;
+    ctx.beginPath();
+    ctx.arc(cx, cy, CELL/2+2, -Math.PI/2, -Math.PI/2 + timeLeft*Math.PI*2);
+    ctx.stroke();
+    ctx.restore();
+  }
 
   // Snake
   snake.forEach((seg, i) => {
@@ -455,6 +594,22 @@ canvas.addEventListener('touchend', e=>{
 },{passive:false});
 
 startBtn.onclick = ()=>{ overlay.style.display='none'; initGame(); };
+
+// D-pad buttons
+function dpadPress(dx, dy) {
+  if(!dir) return;
+  const nd = {x:dx, y:dy};
+  if(!(nd.x===-dir.x && nd.y===-dir.y)) nextDir = nd;
+}
+document.getElementById('btn-up').addEventListener('touchstart',    e=>{ dpadPress(0,-1); e.preventDefault(); },{passive:false});
+document.getElementById('btn-down').addEventListener('touchstart',  e=>{ dpadPress(0,1);  e.preventDefault(); },{passive:false});
+document.getElementById('btn-left').addEventListener('touchstart',  e=>{ dpadPress(-1,0); e.preventDefault(); },{passive:false});
+document.getElementById('btn-right').addEventListener('touchstart', e=>{ dpadPress(1,0);  e.preventDefault(); },{passive:false});
+document.getElementById('btn-up').addEventListener('mousedown',    ()=>dpadPress(0,-1));
+document.getElementById('btn-down').addEventListener('mousedown',  ()=>dpadPress(0,1));
+document.getElementById('btn-left').addEventListener('mousedown',  ()=>dpadPress(-1,0));
+document.getElementById('btn-right').addEventListener('mousedown', ()=>dpadPress(1,0));
+
 draw();
 </script>
 </body>
